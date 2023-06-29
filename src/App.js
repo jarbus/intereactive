@@ -4,10 +4,11 @@ import React, { useState } from "react";
 
 // make id a random int
 let id = Math.floor(Math.random() * 1000000000);
-const genesis_endpoint = 'http://localhost:8008/genesis';
-const submit_endpoint = 'http://localhost:8008/submit_prompt';
-const inc_gen_endpoint = 'http://localhost:8008/increment_generation/';
-const get_child_endpoint= 'http://localhost:8008/get_new_children';
+var new_generation = false;
+const genesis_endpoint = 'http://localhost:8000/genesis';
+const submit_endpoint = 'http://localhost:8000/submit_prompt';
+const inc_gen_endpoint = 'http://localhost:8000/increment_generation/';
+const get_child_endpoint= 'http://localhost:8000/get_new_children';
 
 function sendGenesisPrompt(prompt) {
   const response = fetch(genesis_endpoint, {
