@@ -34,105 +34,113 @@ async function getNewChildren(child_fetcher, setChildFetcher, cur_gen, setCurGen
     return;
   }
   setChildFetcher((state) => state+1);
+  var children = []
 
   while (true) {
+    // reset children if new generation
+    if (new_generation) {
+      children = [];
+      new_generation = false;
+    }
     var url = new URL(get_child_endpoint);
     url.search = new URLSearchParams({ident: id});
     const response = await fetch(url);
     if (response.status === 200) {
       const data = await response.json()
       if (data.children.length > 0) {
-        console.log(data.children);
-        setCurGen(data.children);
+        children = children.concat(data.children);
+        setCurGen(children);
       }
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
 
-function incrementGeneration() {
-  return fetch(inc_gen_endpoint, {
+async function incrementGeneration() {
+  return await fetch(inc_gen_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({id: id}),
     })
-  .then(r => r.status)
-  .catch((error) => {
-    console.error('Error:', error);
-  });
+    .catch((error) => {
+      console.error('Error:', error);
+    });
 }
 
 function Square(idx, props) {
   // has attributes prompt image
   var member = props.cur_gen[idx];
-  console.log(member);
+  console.log(idx, props.cur_gen);
+  var imgStyle = { maxHeight: "270px", maxWidth: "270px", margin: "0px" };
   var img = "";
   if (member === undefined) {
-    member = {prompt: "", image: ""};
+    member = { prompt: "", image: "" };
   } else {
     img = new Image();
-    img.src = 'data:image/jpg;base64,' + member.image.replace(/^"(.*)"$/, '$1');
+    img.src =
+      "data:image/jpg;base64," + member.image.replace(/^"(.*)"$/, "$1");
 
     console.log(img.src);
   }
   return (
-    <div
-      key={idx}
-      style={{
-        height: "120px",
-        border: "1px solid black",
-      }}
-      onClick={(event) => {
-        event.preventDefault();
-        event.target.style.border = "1px solid red";
-        const data = {prompt: member.prompt, id: id}
+  <div
+    key={idx}
+    style={{
+      height: "270px",
+      width: "270px",
+      border: "1px solid black",
+    }}
+    title={member.prompt}
+    onClick={(event) => {
+      event.preventDefault();
+      event.target.style.border = "4px solid red";
+      const data = { prompt: member.prompt, id: id };
+      props.setSubmittedThisGen((prev) => prev+1);
 
-        const response = fetch(submit_endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(data),
-        })
-
-        event.target.style.border = "1px solid black";
-      }}
-    >
-    <img src={img.src} />
-    </div>
-  );
+      const response = fetch(submit_endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+    }}
+    alt={member.prompt}>
+  <img src={img.src} style={imgStyle}/>
+  </div>
+);
 }
 
 function Grid({n, props}) {
   const squares = Array(n * n).fill(null);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${n}, 1fr)` }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${6}, 280px)`, gridGap: '10px' }}>
       {squares.map((square, index) => Square(index, props))}
     </div>
   );
 }
 
-function NextGenerationButton({props}) {
+function NextGenerationButton({props, grid}) {
   const [text, setText] = useState("");
+  // set all image borders to all squares to black
+  
   return (
     <div>
       <button 
         onClick={() => {
-          if (props.cur_gen.length > 0) {
-            const status = incrementGeneration();
-            console.log(status);
-            if (status === 200) {
-              console.log('incremented generation');
-              props.setCurGen([]);
-              props.setGenerations((prev) => prev+1);
-              setText("");
-            } else {
-              console.log('failed to increment generation');
-              setText("Please choose at least one parent");
-            }
+          incrementGeneration(props.setCurGen);
+          console.log('incremented generation');
+          new_generation = true;
+          props.setSubmittedThisGen(0);
+          props.setCurGen([]);
+          props.setGenerations((prev) => prev+1);
+          // set all borders of all image elements to black
+          var images = document.getElementsByTagName('img');
+          for (var i = 0; i < images.length; i++) {
+            images[i].style.border = "1px solid black";
           }
         }}
         >
@@ -156,6 +164,7 @@ function PromptBox({props}) {
         props.setGenerations(1);
         props.setCurGen([]);
         props.setPrompt(text);
+        new_generation = true;
         var prompts = sendGenesisPrompt(text);
       }}>New Genesis</button>
     <p>Generation: {props.generations}</p>
@@ -169,6 +178,7 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [cur_gen, setCurGen] = useState([]);
   const [child_fetcher, setChildFetcher] = useState(0);
+  const [submitted_this_gen, setSubmittedThisGen] = useState(0);
 
   var props = {
     prompt: prompt,
@@ -177,16 +187,25 @@ function App() {
     setGenerations: setGenerations,
     cur_gen: cur_gen,
     setCurGen: setCurGen,
+    submitted_this_gen: submitted_this_gen,
+    setSubmittedThisGen: setSubmittedThisGen,
   }
   getNewChildren(child_fetcher, setChildFetcher, cur_gen, setCurGen)
 
+  var grid = Grid({n: 4, props: props});
+  if (submitted_this_gen >= 4) {
+    var next_gen_button = <NextGenerationButton props={props} grid={grid}/>;
+  } else {
+    var next_gen_button = <div></div>;
+  }
 
   return (
     <div className="App">
     id {id}
     <PromptBox props={props} />
-    <Grid n={4} props={props}/>
-    <NextGenerationButton props={props} />
+    Submitted {submitted_this_gen}/4 parents
+    {next_gen_button}
+    {grid}
     </div>
   );
 }
