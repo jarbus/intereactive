@@ -5,8 +5,13 @@ import React, { useState } from "react";
 // make id a random int
 let id = Math.floor(Math.random() * 1000000000);
 var new_generation = false;
+// global variable of first parent selected for crossover.
+// is reset when a new parent is selected for mutation, or 
+// when a second parent is selected for crossover
+var crossover_parent = 0; 
 const genesis_endpoint = 'http://localhost:8000/genesis';
 const submit_endpoint = 'http://localhost:8000/submit_prompt';
+const crossover_endpoint = 'http://localhost:8000/crossover_prompts';
 const inc_gen_endpoint = 'http://localhost:8000/increment_generation/';
 const get_child_endpoint= 'http://localhost:8000/get_new_children';
 
@@ -94,18 +99,45 @@ function Square(idx, props) {
     }}
     title={member.prompt}
     onClick={(event) => {
+      if (member.prompt === "") {
+        return;
+      }
       event.preventDefault();
-      event.target.style.border = "4px solid red";
-      const data = { prompt: member.prompt, id: id };
-      props.setSubmittedThisGen((prev) => prev+1);
-
-      const response = fetch(submit_endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
+      // if shift key is pressed, handle crossover
+      if (event.shiftKey) {
+        event.target.style.border = "4px solid green";
+        if (crossover_parent === 0) {
+          crossover_parent = member.prompt;
+        } else if (crossover_parent === member.prompt) {
+          crossover_parent = 0;
+          event.target.style.border = "1px solid black";
+        } else {
+          // send crossover request to server
+          props.setSubmittedThisGen((prev) => prev+1);
+          const data = { p1: crossover_parent, p2: member.prompt, id: id };
+          crossover_parent = 0;
+          const response = fetch(crossover_endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+          });
+        }
+      } 
+      else {
+        props.setSubmittedThisGen((prev) => prev+1);
+        event.target.style.border = "4px solid red";
+        const data = { prompt: member.prompt, id: id };
+        const response = fetch(submit_endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+        });
+      }
+     
     }}
     alt={member.prompt}>
   <img src={img.src} style={imgStyle}/>
