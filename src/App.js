@@ -11,23 +11,23 @@ var new_generation = false;
 // when a second parent is selected for crossover
 var crossover_parent = 0; 
 var GENERATION = 0
+const working_endpoint = 'http://localhost:8000/working';
 const genesis_endpoint = 'http://localhost:8000/genesis';
 const submit_endpoint = 'http://localhost:8000/submit_prompt';
 const get_child_endpoint= 'http://localhost:8000/get_new_children';
 const download_endpoint= 'http://localhost:8000/download';
+const lineage_endpoint= 'http://localhost:8000/lineage';
 
-function getPPIDs(children) {
-    var ppids = children.map((child) => child.ppid);
-    var ppid2s = children.map((child) => child.ppid2);
-    // create a set of all ppids
-    var ppids_set = new Set(ppids);
-    var ppid2s_set = new Set(ppid2s);
-    // get the union of the two sets
-    var union = new Set([...ppids_set, ...ppid2s_set]);
-    // remove all null values
-    union.delete(null);
-    union.delete("None");
-    return union;
+async function getWorking(props) {
+
+  var url = new URL(working_endpoint);
+  url.search = new URLSearchParams({genesis_id: genesis_id});
+  const response = await fetch(url);
+
+  if (response.status === 200) {
+    const data = await response.json()
+    props.setWorking(data);
+  }
 }
 
 async function updateChildren(props, children){
@@ -49,9 +49,6 @@ async function updateChildren(props, children){
         props.setCurGen(children);
       }
     }
-    var unique_ppids = getPPIDs(children);
-    props.setNumParents(unique_ppids.size);
-
 }
 
 // constantly pull new children from the server
@@ -62,7 +59,8 @@ async function getNewChildren(props, children) {
   props.setChildFetcher((state) => state+1);
   while (true) {
     await updateChildren(props, children);
-    await new Promise(r => setTimeout(r, 1000));
+    await getWorking(props);
+    await new Promise(r => setTimeout(r, 3000));
   }
 }
 
@@ -114,6 +112,13 @@ function Square(idx, props) {
           });
         }
       } 
+      // if control click, request lineage in new window
+      else if (event.ctrlKey) {
+        const data = { pid: member.pid, genesis_id: genesis_id };
+        var url = new URL(lineage_endpoint);
+        url.search = new URLSearchParams(data);
+        window.open(url);
+      }
       else {
         event.target.style.border = "4px solid red";
         const data = { prompt: member.prompt, gen: GENERATION, genesis_id: genesis_id };
@@ -125,19 +130,17 @@ function Square(idx, props) {
           body: JSON.stringify(data),
         });
       }
-     
     }}
     alt={member.prompt}>
   <img src={img.src} style={imgStyle}/>
   </div>
 );
 }
-
 function Grid({n, props}) {
   const squares = Array(n).fill(null);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${4}, 280px)`, gridGap: '10px' }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${4}, 280px)`, gridGap: '10px', justifyContent: 'center', alignItems: 'center' }}>
       {squares.map((square, index) => Square(index, props))}
     </div>
   );
@@ -159,7 +162,8 @@ function PrevGenerationButton({props, grid}) {
             images[i].style.border = "1px solid black";
           }
         }}
-        >
+        disabled={GENERATION < 2}
+      >
         Prev Generation
       </button>
     );
@@ -187,42 +191,16 @@ function NextGenerationButton({props, grid}) {
   );
 }
 
-function download(filename, text) {
-  var element = document.createElement('a');
-  element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-  element.setAttribute('download', filename);
-  element.style.display = 'none';
-  document.body.appendChild(element);
-  element.click();
-  document.body.removeChild(element);
-}
-
-function DownloadButton({props}) {
-  return (
-    <div>
-      <button onClick={() => {
-        var url = new URL(download_endpoint);
-        url.search = new URLSearchParams({ident: genesis_id});
-        fetch(url)
-          .then(r => r.json())
-          .then(json => {
-            var text = JSON.stringify(json);
-            download("generations.json", text);
-          })
-
-      }}>Download</button>
-    </div>
-  );
-}
-
 function PromptBox({props}) {
   const [text, setText] = useState(""); // internal text before it gets submitted
   return (
     <div>
       <input
+        placeholder="Enter a prompt, e.g. 'a cat'"
         type="text"
         value={text}
         onChange={(event) => setText(event.target.value)}
+        // onKeyPress={(event) => {
       />
     <button onClick={() => {
         GENERATION = 1;
@@ -233,19 +211,43 @@ function PromptBox({props}) {
         fetch(genesis_endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
-            body: JSON.stringify({prompt: text, genesis_id: genesis_id, gen: 0})
+            body: JSON.stringify({prompt: text, genesis_id: genesis_id, gen: 0, prompt2: null})
         });
       }}>New Genesis</button>
     </div>
   );
 }
 
+function StartScreen({props}) {
+  return <div className="App">
+   <PromptBox props={props}/>
+   <p>Welcome to PromptBreeder! Enter a prompt in the text box to start. Children take up to 20 seconds to generate, so they may not appear immediately.</p>
+  </div>
+}
+
+function EvolutionScreen({props}) {
+  var grid = Grid({n: props.cur_gen.length, props: props});
+
+  var next_gen_button = <NextGenerationButton props={props} grid={grid}/>;
+  var prev_gen_button = <PrevGenerationButton props={props} grid={grid}/>;
+
+  return <div className="App">
+    Genesis ID {genesis_id}
+    <p>Genesis Prompt: {props.prompt}</p>
+    <p>Generating {props.working} children...</p>
+
+    {prev_gen_button} Generation: {props.generations} {next_gen_button}
+    {grid}
+  </div>
+
+
+}
 function App() {
   const [generations, setGenerations] = useState(0);
   const [prompt, setPrompt] = useState("");
   const [cur_gen, setCurGen] = useState([]);
   const [child_fetcher, setChildFetcher] = useState(0);
-  const [num_parents, setNumParents] = useState(0);
+  const [working, setWorking] = useState(0);
 
   var props = {
     prompt: prompt,
@@ -254,32 +256,48 @@ function App() {
     setGenerations: setGenerations,
     cur_gen: cur_gen,
     setCurGen: setCurGen,
-    num_parents: num_parents,
-    setNumParents: setNumParents,
     child_fetcher: child_fetcher,
     setChildFetcher: setChildFetcher,
+    working: working,
+    setWorking: setWorking,
   }
   getNewChildren(props, children)
 
-  var grid = Grid({n: cur_gen.length, props: props});
-  if (GENERATION > 1) {
-    var prev_gen_button = <PrevGenerationButton props={props} grid={grid}/>;
-  } else {
-    var prev_gen_button = <div></div>;
+  
+  if (GENERATION == 0) {
+    return <StartScreen props={props}/>
   }
-  var next_gen_button = <NextGenerationButton props={props} grid={grid}/>;
-
-  return (
-    <div className="App">
-    genesis_id {genesis_id}
-    <PromptBox props={props} />
-    {prev_gen_button} Generation: {props.generations} {next_gen_button}
-    <p>Prompt: {props.prompt}</p>
-    <DownloadButton/>
-    This generation has {num_parents} parent(s)
-    {grid}
-    </div>
-  );
+  else {
+    return <EvolutionScreen props={props}/>;
+  }
 }
 
 export default App;
+
+
+// function download(filename, text) {
+//   var element = document.createElement('a');
+//   element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+//   element.setAttribute('download', filename);
+//   element.style.display = 'none';
+//   document.body.appendChild(element);
+//   element.click();
+//   document.body.removeChild(element);
+// }
+//
+// function DownloadButton({props}) {
+//   return (
+//     <div>
+//       <button onClick={() => {
+//         var url = new URL(download_endpoint);
+//         url.search = new URLSearchParams({ident: genesis_id});
+//         fetch(url)
+//           .then(r => r.json())
+//           .then(json => {
+//             var text = JSON.stringify(json);
+//             download("generations.json", text);
+//           })
+//       }}>Download</button>
+//     </div>
+//   );
+// }
