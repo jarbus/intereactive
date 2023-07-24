@@ -4,7 +4,7 @@ import React, { useState } from "react";
 
 // make genesis genesis_id a random int
 let genesis_id = Math.floor(Math.random() * 1000000000);
-var children = []
+var children = [[]]
 var new_generation = false;
 // global variable of first parent selected for crossover.
 // is reset when a new parent is selected for mutation, or 
@@ -32,21 +32,23 @@ async function getWorking(props) {
 
 async function updateChildren(props, children){
     // reset children if new generation
+    if (GENERATION === 0 ){
+      return;
+    }
     props.setGenerations(GENERATION);
-    if (new_generation) {
-      children = [];
-      new_generation = false;
+    while (GENERATION+1 > children.length) {
+      children.push([]);
     }
     var url = new URL(get_child_endpoint);
-    var pids = children.map((child) => child.pid);
+    var pids = children[GENERATION-1].map((child) => child.pid);
 
     url.search = new URLSearchParams({genesis_id: genesis_id, gen: GENERATION, seen_pids: pids});
     const response = await fetch(url);
     if (response.status === 200) {
       const data = await response.json()
       if (data.length > 0) {
-        children = children.concat(data);
-        props.setCurGen(children);
+        children[GENERATION-1] = children[GENERATION-1].concat(data);
+        props.setCurGen(children[GENERATION-1]);
       }
     }
 }
@@ -151,7 +153,7 @@ function PrevGenerationButton({props, grid}) {
       <button 
         onClick={() => {
           new_generation = true;
-          props.setCurGen([]);
+          props.setCurGen(children[GENERATION-2]);
           GENERATION -= 1;
           props.setGenerations(GENERATION);
           updateChildren(props, children);
@@ -174,7 +176,7 @@ function NextGenerationButton({props, grid}) {
       <button 
         onClick={() => {
           new_generation = true;
-          props.setCurGen([]);
+          props.setCurGen(children[GENERATION]);
           GENERATION += 1;
           props.setGenerations(GENERATION);
           updateChildren(props, children);
@@ -221,7 +223,7 @@ function PromptBox({props}) {
 function StartScreen({props}) {
   return <div className="App">
    <PromptBox props={props}/>
-   <p>Welcome to PromptBreeder! Enter a prompt in the text box to start. Children take up to 20 seconds to generate, so they may not appear immediately.</p>
+   <p>Welcome to PromptBreeder! Enter a prompt in the text box to start, and choose your favorite image generations.</p>
   </div>
 }
 
@@ -264,7 +266,7 @@ function App() {
   getNewChildren(props, children)
 
   
-  if (GENERATION == 0) {
+  if (GENERATION === 0) {
     return <StartScreen props={props}/>
   }
   else {
